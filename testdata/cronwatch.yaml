@@ -1,0 +1,17 @@
+# Example cronwatch configuration
+default_webhook: "https://hooks.example.com/cronwatch"
+check_interval: 30s
+
+jobs:
+  - name: nightly-backup
+    schedule: "0 2 * * *"
+    tolerance: 5m
+
+  - name: hourly-sync
+    schedule: "0 * * * *"
+    tolerance: 2m
+    webhook: "https://hooks.example.com/sync-alerts"
+
+  - name: frequent-health-check
+    schedule: "*/5 * * * *"
+    tolerance: 1m
