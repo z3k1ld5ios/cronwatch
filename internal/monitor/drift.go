@@ -3,52 +3,50 @@ package monitor
 import (
 	"time"
 
-	"github.com/cronwatch/cronwatch/internal/schedule"
+	"github.com/yourorg/cronwatch/internal/schedule"
 )
 
-// DriftThreshold is the maximum acceptable drift before an alert is raised.
-const DefaultDriftThreshold = 30 * time.Second
-
-// DriftAnalyzer evaluates run history to detect drift trends.
+// DriftAnalyzer computes execution drift for a named job.
 type DriftAnalyzer struct {
-	history   *schedule.History
-	threshold time.Duration
+	history *schedule.History
 }
 
-// NewDriftAnalyzer creates a DriftAnalyzer using the provided History and threshold.
-func NewDriftAnalyzer(h *schedule.History, threshold time.Duration) *DriftAnalyzer {
-	if threshold <= 0 {
-		threshold = DefaultDriftThreshold
-	}
-	return &DriftAnalyzer{history: h, threshold: threshold}
+// NewDriftAnalyzer returns a DriftAnalyzer backed by the given History.
+func NewDriftAnalyzer(h *schedule.History) *DriftAnalyzer {
+	return &DriftAnalyzer{history: h}
 }
 
-// DriftResult holds the outcome of a drift evaluation.
+// DriftResult holds the result of a drift analysis.
 type DriftResult struct {
-	JobName       string
-	LatestDrift   time.Duration
-	AverageDrift  time.Duration
-	ExceedsLimit  bool
+	JobName      string
+	Expected     time.Time
+	Actual       time.Time
+	Drift        time.Duration
+	AbsDrift     time.Duration
+	IsSignificant bool
 }
 
-// Evaluate checks the recent run history for jobName and returns a DriftResult.
-func (d *DriftAnalyzer) Evaluate(jobName string) (DriftResult, bool) {
-	records := d.history.All(jobName)
-	if len(records) == 0 {
+// Analyze computes the drift between the last recorded execution and the
+// expected execution time derived from the schedule. threshold is the minimum
+// absolute drift to consider significant.
+func (d *DriftAnalyzer) Analyze(jobName string, expected time.Time, threshold time.Duration) (DriftResult, bool) {
+	latest, ok := d.history.Latest(jobName)
+	if !ok {
 		return DriftResult{}, false
 	}
 
-	latest := records[len(records)-1]
-	var total time.Duration
-	for _, r := range records {
-		total += r.Drift
+	drift := latest.Sub(expected)
+	abs := drift
+	if abs < 0 {
+		abs = -abs
 	}
-	avg := total / time.Duration(len(records))
 
 	return DriftResult{
-		JobName:      jobName,
-		LatestDrift:  latest.Drift,
-		AverageDrift: avg,
-		ExceedsLimit: latest.Drift > d.threshold || latest.Drift < -d.threshold,
+		JobName:       jobName,
+		Expected:      expected,
+		Actual:        latest,
+		Drift:         drift,
+		AbsDrift:      abs,
+		IsSignificant: abs >= threshold,
 	}, true
 }
