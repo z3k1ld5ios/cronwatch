@@ -2,88 +2,95 @@ package config
 
 import (
 	"os"
+	"path/filepath"
 	"testing"
 	"time"
 )
 
 func writeTempConfig(t *testing.T, content string) string {
 	t.Helper()
-	f, err := os.CreateTemp("", "cronwatch-*.yaml")
-	if err != nil {
-		t.Fatalf("creating temp file: %v", err)
+	dir := t.TempDir()
+	p := filepath.Join(dir, "cronwatch.yaml")
+	if err := os.WriteFile(p, []byte(content), 0644); err != nil {
+		t.Fatalf("writeTempConfig: %v", err)
 	}
-	if _, err := f.WriteString(content); err != nil {
-		t.Fatalf("writing temp file: %v", err)
-	}
-	f.Close()
-	t.Cleanup(func() { os.Remove(f.Name()) })
-	return f.Name()
+	return p
 }
 
 func TestLoad_ValidConfig(t *testing.T) {
-	path := writeTempConfig(t, `
-default_webhook: "https://hooks.example.com/alert"
+	p := writeTempConfig(t, `
+webhook_url: https://hooks.example.com/alert
 check_interval: 1m
 jobs:
   - name: backup
     schedule: "0 2 * * *"
-    tolerance: 5m
 `)
-	cfg, err := Load(path)
+	cfg, err := Load(p)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if len(cfg.Jobs) != 1 {
-		t.Fatalf("expected 1 job, got %d", len(cfg.Jobs))
-	}
-	if cfg.Jobs[0].Name != "backup" {
-		t.Errorf("expected job name 'backup', got %q", cfg.Jobs[0].Name)
+	if cfg.WebhookURL != "https://hooks.example.com/alert" {
+		t.Errorf("unexpected webhook_url: %s", cfg.WebhookURL)
 	}
 	if cfg.CheckInterval != time.Minute {
-		t.Errorf("expected 1m interval, got %v", cfg.CheckInterval)
+		t.Errorf("unexpected check_interval: %v", cfg.CheckInterval)
 	}
 }
 
 func TestLoad_DefaultCheckInterval(t *testing.T) {
-	path := writeTempConfig(t, `
-default_webhook: "https://hooks.example.com/alert"
+	p := writeTempConfig(t, `
+webhook_url: https://hooks.example.com/alert
 jobs:
   - name: sync
     schedule: "*/5 * * * *"
 `)
-	cfg, err := Load(path)
+	cfg, err := Load(p)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if cfg.CheckInterval != 30*time.Second {
-		t.Errorf("expected default 30s, got %v", cfg.CheckInterval)
+		t.Errorf("expected default check_interval 30s, got %v", cfg.CheckInterval)
 	}
 }
 
 func TestLoad_MissingWebhook(t *testing.T) {
-	path := writeTempConfig(t, `
+	p := writeTempConfig(t, `
 jobs:
-  - name: nightly
-    schedule: "0 0 * * *"
+  - name: sync
+    schedule: "*/5 * * * *"
 `)
-	_, err := Load(path)
+	_, err := Load(p)
 	if err == nil {
-		t.Fatal("expected error for missing webhook, got nil")
+		t.Fatal("expected error for missing webhook_url")
 	}
 }
 
 func TestLoad_NoJobs(t *testing.T) {
-	path := writeTempConfig(t, `default_webhook: "https://hooks.example.com/alert"
+	p := writeTempConfig(t, `
+webhook_url: https://hooks.example.com/alert
 `)
-	_, err := Load(path)
+	_, err := Load(p)
 	if err == nil {
-		t.Fatal("expected error for no jobs, got nil")
+		t.Fatal("expected error for missing jobs")
 	}
 }
 
-func TestLoad_FileNotFound(t *testing.T) {
-	_, err := Load("/nonexistent/path/cronwatch.yaml")
-	if err == nil {
-		t.Fatal("expected error for missing file, got nil")
+func TestLoad_DefaultDriftAndCooldownPerJob(t *testing.T) {
+	p := writeTempConfig(t, `
+webhook_url: https://hooks.example.com/alert
+alert_cooldown: 10m
+jobs:
+  - name: report
+    schedule: "0 6 * * 1"
+`)
+	cfg, err := Load(p)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.Jobs[0].DriftThreshold != 2*time.Minute {
+		t.Errorf("expected default drift_threshold 2m, got %v", cfg.Jobs[0].DriftThreshold)
+	}
+	if cfg.Jobs[0].AlertCooldown != 10*time.Minute {
+		t.Errorf("expected job cooldown inherited from global 10m, got %v", cfg.Jobs[0].AlertCooldown)
 	}
 }

@@ -8,62 +8,74 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// Job defines a single monitored cron job.
-type Job struct {
-	Name     string        `yaml:"name"`
-	Schedule string        `yaml:"schedule"`
-	Tolerance time.Duration `yaml:"tolerance"`
-	Webhook  string        `yaml:"webhook"`
+// JobConfig holds configuration for a single monitored cron job.
+type JobConfig struct {
+	Name            string        `yaml:"name"`
+	Schedule        string        `yaml:"schedule"`
+	WebhookURL      string        `yaml:"webhook_url"`
+	DriftThreshold  time.Duration `yaml:"drift_threshold"`
+	AlertCooldown   time.Duration `yaml:"alert_cooldown"`
 }
 
-// Config holds the full cronwatch configuration.
+// Config is the top-level configuration structure for cronwatch.
 type Config struct {
-	Jobs           []Job         `yaml:"jobs"`
-	DefaultWebhook string        `yaml:"default_webhook"`
-	CheckInterval  time.Duration `yaml:"check_interval"`
+	WebhookURL      string        `yaml:"webhook_url"`
+	CheckInterval   time.Duration `yaml:"check_interval"`
+	AlertCooldown   time.Duration `yaml:"alert_cooldown"`
+	Jobs            []JobConfig   `yaml:"jobs"`
 }
 
 // Load reads and parses a YAML config file at the given path.
 func Load(path string) (*Config, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return nil, fmt.Errorf("reading config file: %w", err)
+		return nil, fmt.Errorf("reading config: %w", err)
 	}
 
 	var cfg Config
 	if err := yaml.Unmarshal(data, &cfg); err != nil {
-		return nil, fmt.Errorf("parsing config file: %w", err)
+		return nil, fmt.Errorf("parsing config: %w", err)
 	}
 
-	if err := cfg.validate(); err != nil {
-		return nil, fmt.Errorf("invalid config: %w", err)
+	if err := validate(&cfg); err != nil {
+		return nil, err
 	}
 
-	if cfg.CheckInterval == 0 {
-		cfg.CheckInterval = 30 * time.Second
-	}
-
+	applyDefaults(&cfg)
 	return &cfg, nil
 }
 
-func (c *Config) validate() error {
-	if len(c.Jobs) == 0 {
-		return fmt.Errorf("no jobs defined")
+func validate(cfg *Config) error {
+	if cfg.WebhookURL == "" {
+		return fmt.Errorf("webhook_url is required")
 	}
-	for i, j := range c.Jobs {
+	if len(cfg.Jobs) == 0 {
+		return fmt.Errorf("at least one job must be configured")
+	}
+	for _, j := range cfg.Jobs {
 		if j.Name == "" {
-			return fmt.Errorf("job[%d]: name is required", i)
+			return fmt.Errorf("each job must have a name")
 		}
 		if j.Schedule == "" {
-			return fmt.Errorf("job %q: schedule is required", j.Name)
-		}
-		wh := j.Webhook
-		if wh == "" {
-			wh = c.DefaultWebhook
-		}
-		if wh == "" {
-			return fmt.Errorf("job %q: webhook is required (no default set)", j.Name)
+			return fmt.Errorf("job %q must have a schedule", j.Name)
 		}
 	}
 	return nil
+}
+
+func applyDefaults(cfg *Config) {
+	if cfg.CheckInterval == 0 {
+		cfg.CheckInterval = 30 * time.Second
+	}
+	if cfg.AlertCooldown == 0 {
+		cfg.AlertCooldown = 15 * time.Minute
+	}
+	for i := range cfg.Jobs {
+		if cfg.Jobs[i].DriftThreshold == 0 {
+			cfg.Jobs[i].DriftThreshold = 2 * time.Minute
+		}
+		if cfg.Jobs[i].AlertCooldown == 0 {
+			cfg.Jobs[i].AlertCooldown = cfg.AlertCooldown
+		}
+	}
 }
