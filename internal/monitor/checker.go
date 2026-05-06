@@ -65,20 +65,27 @@ func (c *Checker) Stop() {
 // checkAll evaluates all configured jobs against the current time.
 func (c *Checker) checkAll(now time.Time) {
 	for _, cfg := range c.configs {
-		sched, err := schedule.Parse(cfg.CronExpr)
-		if err != nil {
-			log.Printf("[checker] invalid cron expr for job %q: %v", cfg.Name, err)
-			continue
-		}
-		lastRun, ok := c.tracker.LastRun(cfg.Name)
-		if !ok {
-			continue
-		}
-		nextExpected := sched.Next(lastRun)
-		if now.After(nextExpected.Add(cfg.MissedThreshold)) {
-			c.notifier.Send(buildAlert(cfg.Name, "missed", lastRun, nextExpected, now))
-		} else if now.After(nextExpected.Add(cfg.DriftThreshold)) {
-			c.notifier.Send(buildAlert(cfg.Name, "drift", lastRun, nextExpected, now))
-		}
+		c.checkJob(cfg, now)
+	}
+}
+
+// checkJob evaluates a single job configuration against the current time,
+// sending an alert if the job has been missed or has drifted beyond its
+// configured thresholds.
+func (c *Checker) checkJob(cfg JobConfig, now time.Time) {
+	sched, err := schedule.Parse(cfg.CronExpr)
+	if err != nil {
+		log.Printf("[checker] invalid cron expr for job %q: %v", cfg.Name, err)
+		return
+	}
+	lastRun, ok := c.tracker.LastRun(cfg.Name)
+	if !ok {
+		return
+	}
+	nextExpected := sched.Next(lastRun)
+	if now.After(nextExpected.Add(cfg.MissedThreshold)) {
+		c.notifier.Send(buildAlert(cfg.Name, "missed", lastRun, nextExpected, now))
+	} else if now.After(nextExpected.Add(cfg.DriftThreshold)) {
+		c.notifier.Send(buildAlert(cfg.Name, "drift", lastRun, nextExpected, now))
 	}
 }
