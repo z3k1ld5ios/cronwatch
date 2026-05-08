@@ -108,3 +108,16 @@ func TestResetJob_WrongMethod(t *testing.T) {
 		t.Errorf("expected 405, got %d", rec.Code)
 	}
 }
+
+func TestResetJob_NotFound(t *testing.T) {
+	srv := newTestServer(t)
+
+	// Attempt to reset a job that was never registered
+	req := httptest.NewRequest(http.MethodPost, "/jobs/reset?job=nonexistent", nil)
+	rec := httptest.NewRecorder()
+	srv.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNotFound {
+		t.Errorf("expected 404, got %d", rec.Code)
+	}
+}
