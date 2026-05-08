@@ -68,3 +68,18 @@ func TestDeleteWindow_NonExistentLabelIsNoOp(t *testing.T) {
 		t.Fatalf("expected 204, got %d", rw.Code)
 	}
 }
+
+func TestDeleteWindow_PostMethodNotAllowed(t *testing.T) {
+	wm := monitor.NewWindowManager()
+	h := handleDeleteWindow(wm)
+
+	for _, method := range []string{http.MethodPost, http.MethodPut, http.MethodPatch} {
+		rw := httptest.NewRecorder()
+		req := httptest.NewRequest(method, "/windows?label=foo", nil)
+		h(rw, req)
+
+		if rw.Code != http.StatusMethodNotAllowed {
+			t.Fatalf("method %s: expected 405, got %d", method, rw.Code)
+		}
+	}
+}
