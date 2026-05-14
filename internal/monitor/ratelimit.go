@@ -73,3 +73,17 @@ func (r *RateLimiter) Stats(jobName string) (count int, windowEnd time.Time) {
 	}
 	return 0, time.Time{}
 }
+
+// PurgeExpired removes all entries whose windows have elapsed.
+// This can be called periodically to prevent unbounded memory growth
+// in long-running processes with many distinct job names.
+func (r *RateLimiter) PurgeExpired() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	now := r.now()
+	for jobName, e := range r.entries {
+		if now.After(e.windowEnd) {
+			delete(r.entries, jobName)
+		}
+	}
+}
